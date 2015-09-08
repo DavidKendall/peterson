@@ -1,6 +1,6 @@
 #include <mbed.h>
 #include <ucos_ii.h>
-#include <MMA7455.h>
+#include <display.h>
 
 
 /*
@@ -12,9 +12,8 @@
 typedef enum {
   APP_TASK_LED1_PRIO = 4,
   APP_TASK_LED2_PRIO,
-	APP_MUTEX_UART_PRIO,
-	APP_TASK_POT_PRIO,
-	APP_TASK_ACCEL_PRIO
+	APP_TASK_COUNT1_PRIO,
+	APP_TASK_COUNT2_PRIO
 } taskPriorities_t;
 
 /*
@@ -25,13 +24,13 @@ typedef enum {
 
 #define  APP_TASK_LED1_STK_SIZE              256
 #define  APP_TASK_LED2_STK_SIZE              256
-#define  APP_TASK_POT_STK_SIZE               256
-#define  APP_TASK_ACCEL_STK_SIZE             256
+#define  APP_TASK_COUNT1_STK_SIZE            256
+#define  APP_TASK_COUNT2_STK_SIZE            256
 
 static OS_STK appTaskLED1Stk[APP_TASK_LED1_STK_SIZE];
 static OS_STK appTaskLED2Stk[APP_TASK_LED2_STK_SIZE];
-static OS_STK appTaskPotStk[APP_TASK_POT_STK_SIZE];
-static OS_STK appTaskAccelStk[APP_TASK_ACCEL_STK_SIZE];
+static OS_STK appTaskCOUNT1Stk[APP_TASK_COUNT1_STK_SIZE];
+static OS_STK appTaskCOUNT2Stk[APP_TASK_COUNT2_STK_SIZE];
 
 /*
 *********************************************************************************************************
@@ -39,18 +38,23 @@ static OS_STK appTaskAccelStk[APP_TASK_ACCEL_STK_SIZE];
 *********************************************************************************************************
 */
 
-static void appTaskLED1Led(void *pdata);
-static void appTaskLED2Led(void *pdata);
-static void appTaskPot(void *pdata);
-static void appTaskAccel(void *pdata);
+static void appTaskLED1(void *pdata);
+static void appTaskLED2(void *pdata);
+static void appTaskCOUNT1(void *pdata);
+static void appTaskCOUNT2(void *pdata);
 
+static void display(uint8_t id, uint32_t value);
+static void progress(uint8_t id, uint32_t value);
 /*
 *********************************************************************************************************
 *                                            GLOBAL VARIABLES
 *********************************************************************************************************
 */
-
-OS_EVENT *uartMutex;
+static Display* d = Display::theDisplay();
+static bool flashing = false;
+static uint32_t total = 0;
+static uint32_t count1 = 0;
+static uint32_t count2 = 0;
 
 /*
 *********************************************************************************************************
@@ -59,37 +63,35 @@ OS_EVENT *uartMutex;
 */
 
 int main() {
-	Serial s(USBTX, USBRX);
-	uint8_t osStatus;
- 
-	/* Initialise devices */
-	s.baud(115200);
+
+  /* Initialise the display */	
+	d->fillScreen(WHITE);
+	d->setTextColor(BLACK, WHITE);
 	
   /* Initialise the OS */
   OSInit();                                                   
 
   /* Create the tasks */
-  OSTaskCreate(appTaskLED1Led,                               
+  OSTaskCreate(appTaskLED1,                               
                (void *)0,
                (OS_STK *)&appTaskLED1Stk[APP_TASK_LED1_STK_SIZE - 1],
                APP_TASK_LED1_PRIO);
   
-  OSTaskCreate(appTaskLED2Led,                               
+  OSTaskCreate(appTaskLED2,                               
                (void *)0,
                (OS_STK *)&appTaskLED2Stk[APP_TASK_LED2_STK_SIZE - 1],
                APP_TASK_LED2_PRIO);
 
-  OSTaskCreate(appTaskPot,                               
+  OSTaskCreate(appTaskCOUNT1,                               
                (void *)0,
-               (OS_STK *)&appTaskPotStk[APP_TASK_POT_STK_SIZE - 1],
-               APP_TASK_POT_PRIO);
+               (OS_STK *)&appTaskCOUNT1Stk[APP_TASK_COUNT1_STK_SIZE - 1],
+               APP_TASK_COUNT1_PRIO);
 
-  OSTaskCreate(appTaskAccel,                               
+  OSTaskCreate(appTaskCOUNT2,                               
                (void *)0,
-               (OS_STK *)&appTaskAccelStk[APP_TASK_ACCEL_STK_SIZE - 1],
-               APP_TASK_ACCEL_PRIO);
+               (OS_STK *)&appTaskCOUNT2Stk[APP_TASK_COUNT2_STK_SIZE - 1],
+               APP_TASK_COUNT2_PRIO);
 
-  uartMutex = OSMutexCreate(APP_MUTEX_UART_PRIO, &osStatus);
 							 
   /* Start the OS */
   OSStart();                                                  
@@ -104,7 +106,7 @@ int main() {
 *********************************************************************************************************
 */
 
-static void appTaskLED1Led(void *pdata) {
+static void appTaskLED1(void *pdata) {
   DigitalOut led1(LED1);
 	
   /* Start the OS ticker -- must be done in the highest priority task */
@@ -112,60 +114,77 @@ static void appTaskLED1Led(void *pdata) {
   
   /* Task main loop */
   while (true) {
-    led1 = !led1;
-    OSTimeDlyHMSM(0,0,0,500);
+		if (flashing) {
+      led1 = !led1;
+		}
+		OSTimeDlyHMSM(0,0,0,500);
   }
 }
 
-static void appTaskLED2Led(void *pdata) {
+static void appTaskLED2(void *pdata) {
   DigitalOut led2(LED2);
 	
   while (true) {
     OSTimeDlyHMSM(0,0,0,500);
-    led2 = !led2;
+		if (flashing) {
+      led2 = !led2;
+		}
   } 
 }
 
-static void appTaskPot(void *pdate) {
-  AnalogIn pot(p15);
-	float potVal = 0.0;
-  uint8_t osStatus;
-	
+static void appTaskCOUNT1(void *pdata) {  
   while (true) {
-    potVal = pot.read();
-	  OSMutexPend(uartMutex, 0, &osStatus);
-    printf("Pot  : %1.2f\n", potVal);
-	  osStatus = OSMutexPost(uartMutex);
-		OSTimeDlyHMSM(0,0,0,500);
-  }
+    count1 += 1;
+    display(1, count1);
+    total += 1;
+    if ((count1 + count2) != total) {
+      flashing = true;
+    }
+		OSTimeDlyHMSM(0,0,0,2);
+  } 
 }
 
-static void appTaskAccel(void *pdate) {
-	MMA7455 acc(P0_27, P0_28);
-	int32_t accVal[3];
-  uint8_t osStatus;
-
-  if (!acc.setMode(MMA7455::ModeMeasurement)) {
- 	  OSMutexPend(uartMutex, 0, &osStatus);
-    printf("Unable to set mode for MMA7455!\n");
-	  osStatus = OSMutexPost(uartMutex);
-		while (true) {}
-  }
-	if (!acc.calibrate()) {
-	  OSMutexPend(uartMutex, 0, &osStatus);
-    printf("Failed to calibrate MMA7455!\n");
-	  osStatus = OSMutexPost(uartMutex);
-		while (true) {}
-  }
-	printf("MMA7455 initialised\n");
-	
+static void appTaskCOUNT2(void *pdata) {
   while (true) {
- 		acc.read(accVal[0], accVal[1], accVal[2]);
-	  OSMutexPend(uartMutex, 0, &osStatus);
-		printf("Acc  : %05d, %05d, %05d\n", accVal[0], accVal[1], accVal[2]); 
-	  osStatus = OSMutexPost(uartMutex);
-		OSTimeDlyHMSM(0,0,0,500);
-  }
+    count2 += 1;
+    display(2, count2);
+    total += 1;
+    if ((count1 + count2) != total) {
+      flashing = true;
+    }
+		OSTimeDlyHMSM(0,0,0,2);
+  } 
 }
 
+static void display(uint8_t id, uint32_t value) {
+    d->setCursor(2, id * d->getStringHeight("X"));
+    d->printf("count%1d: %09d", id, value);
+	  progress(id, value);
+}
+
+static void progress(uint8_t id, uint32_t value) {
+	uint16_t x;
+	uint16_t y;
+	uint16_t height;
+	uint16_t colour;
+	
+	value %= 1000;
+	height = d->getStringHeight("X");
+	for (x = 200; x < 300; x++) {
+		if (x <= 200 + (value / 10)) {
+			if (id == 1) {
+			  colour = RED;
+			}
+			else {
+				colour = BLUE;
+			}
+		}
+		else {
+			colour = WHITE;
+		}
+		for (y = id * height; y < (id + 1) * height - 2; y++) {
+			d->drawPixel(x, y, colour);
+		}
+	}
+}
 
