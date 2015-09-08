@@ -165,25 +165,32 @@ static void display(uint8_t id, uint32_t value) {
 static void progress(uint8_t id, uint32_t value) {
 	uint16_t x;
 	uint16_t y;
+	uint16_t const left = 200;
+  uint16_t const right = 300;
+  uint16_t ppos;	
 	uint16_t height;
+	uint16_t top;
+	uint16_t bottom;
 	uint16_t colour;
 	
-	value %= 1000;
+	ppos = left + ((value % 1000) / 10);	
 	height = d->getStringHeight("X");
-	for (x = 200; x < 300; x++) {
-		if (x <= 200 + (value / 10)) {
-			if (id == 1) {
-			  colour = RED;
-			}
-			else {
-				colour = BLUE;
-			}
-		}
-		else {
-			colour = WHITE;
-		}
-		for (y = id * height; y < (id + 1) * height - 2; y++) {
+	top = id * height;
+	bottom = (id + 1) * height - 2;
+	if (id == 1) {
+		colour = RED;
+	}
+	else {
+		colour = GREEN;
+	}
+	for (x = left; x < ppos; x++) {
+		for (y = top; y < bottom; y++) {
 			d->drawPixel(x, y, colour);
+		}
+	}
+	for (x = ppos; x < right; x++) {
+		for (y = top; y < bottom; y++) {
+			d->drawPixel(x, y, WHITE);
 		}
 	}
 }
