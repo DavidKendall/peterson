@@ -55,6 +55,9 @@ static bool flashing = false;
 static uint32_t total = 0;
 static uint32_t count1 = 0;
 static uint32_t count2 = 0;
+static bool need1 = false;
+static bool need2 = false;
+static uint32_t turn = 0;
 
 /*
 *********************************************************************************************************
@@ -134,9 +137,16 @@ static void appTaskLED2(void *pdata) {
 
 static void appTaskCOUNT1(void *pdata) {  
   while (true) {
+		need1 = true;
+		turn = 2;
+		while (need2 && (turn == 2)) {
+			// do nothing but wait
+			OSTimeDlyHMSM(0,0,0,1);
+		}
     count1 += 1;
     display(1, count1);
     total += 1;
+		need1 = false;
     if ((count1 + count2) != total) {
       flashing = true;
     }
@@ -146,9 +156,16 @@ static void appTaskCOUNT1(void *pdata) {
 
 static void appTaskCOUNT2(void *pdata) {
   while (true) {
+		need2 = true;
+		turn = 1;
+		while (need1 && (turn == 1)) {
+			// do nothing but wait
+			// OSTimeDlyHMSM(0,0,0,1);
+		}
     count2 += 1;
     display(2, count2);
     total += 1;
+		need2 = false;
     if ((count1 + count2) != total) {
       flashing = true;
     }
