@@ -11,6 +11,7 @@
 
 typedef enum {
 	APP_TASK_BUTTONS_PRIO = 4,
+	APP_TASK_POT_PRIO,
   APP_TASK_LED1_PRIO,
   APP_TASK_LED2_PRIO
 } taskPriorities_t;
@@ -22,10 +23,12 @@ typedef enum {
 */
 
 #define  APP_TASK_BUTTONS_STK_SIZE           256
+#define  APP_TASK_POT_STK_SIZE               256
 #define  APP_TASK_LED1_STK_SIZE              256
 #define  APP_TASK_LED2_STK_SIZE              256
 
 static OS_STK appTaskButtonsStk[APP_TASK_BUTTONS_STK_SIZE];
+static OS_STK appTaskPotStk[APP_TASK_POT_STK_SIZE];
 static OS_STK appTaskLED1Stk[APP_TASK_LED1_STK_SIZE];
 static OS_STK appTaskLED2Stk[APP_TASK_LED2_STK_SIZE];
 
@@ -36,6 +39,7 @@ static OS_STK appTaskLED2Stk[APP_TASK_LED2_STK_SIZE];
 */
 
 static void appTaskButtons(void *pdata);
+static void appTaskPot(void *pdata);
 static void appTaskLED1(void *pdata);
 static void appTaskLED2(void *pdata);
 
@@ -95,7 +99,12 @@ int main() {
                (OS_STK *)&appTaskButtonsStk[APP_TASK_BUTTONS_STK_SIZE - 1],
                APP_TASK_BUTTONS_PRIO);
   
-  OSTaskCreate(appTaskLED1,                               
+  OSTaskCreate(appTaskPot,                               
+               (void *)0,
+               (OS_STK *)&appTaskPotStk[APP_TASK_POT_STK_SIZE - 1],
+               APP_TASK_POT_PRIO);
+
+							 OSTaskCreate(appTaskLED1,                               
                (void *)0,
                (OS_STK *)&appTaskLED1Stk[APP_TASK_LED1_STK_SIZE - 1],
                APP_TASK_LED1_PRIO);
@@ -138,6 +147,14 @@ static void appTaskButtons(void *pdata) {
 			incDelay();
 		}
     OSTimeDlyHMSM(0,0,0,100);
+  }
+}
+
+static void appTaskPot(void *pdata) {
+  while (true) {
+    d->setCursor(2, 12);
+		d->printf("Pot value : %1.2f\n", potentiometer.read());
+    OSTimeDlyHMSM(0,0,0,200);
   }
 }
 
