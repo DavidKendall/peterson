@@ -1,19 +1,18 @@
-#include <mbed.h>
+#include <stdbool.h>
 #include <ucos_ii.h>
+#include <mbed.h>
 #include <display.h>
-
 
 /*
 *********************************************************************************************************
-*                                            APPLICATION TASK AND MUTEX PRIORITIES
+*                                            APPLICATION TASK PRIORITIES
 *********************************************************************************************************
 */
 
 typedef enum {
-  APP_TASK_LED1_PRIO = 4,
-  APP_TASK_LED2_PRIO,
-	APP_TASK_COUNT1_PRIO,
-	APP_TASK_COUNT2_PRIO
+	APP_TASK_BUTTONS_PRIO = 4,
+  APP_TASK_LED1_PRIO,
+  APP_TASK_LED2_PRIO
 } taskPriorities_t;
 
 /*
@@ -22,15 +21,13 @@ typedef enum {
 *********************************************************************************************************
 */
 
+#define  APP_TASK_BUTTONS_STK_SIZE           256
 #define  APP_TASK_LED1_STK_SIZE              256
 #define  APP_TASK_LED2_STK_SIZE              256
-#define  APP_TASK_COUNT1_STK_SIZE            256
-#define  APP_TASK_COUNT2_STK_SIZE            256
 
+static OS_STK appTaskButtonsStk[APP_TASK_BUTTONS_STK_SIZE];
 static OS_STK appTaskLED1Stk[APP_TASK_LED1_STK_SIZE];
 static OS_STK appTaskLED2Stk[APP_TASK_LED2_STK_SIZE];
-static OS_STK appTaskCOUNT1Stk[APP_TASK_COUNT1_STK_SIZE];
-static OS_STK appTaskCOUNT2Stk[APP_TASK_COUNT2_STK_SIZE];
 
 /*
 *********************************************************************************************************
@@ -38,26 +35,42 @@ static OS_STK appTaskCOUNT2Stk[APP_TASK_COUNT2_STK_SIZE];
 *********************************************************************************************************
 */
 
+static void appTaskButtons(void *pdata);
 static void appTaskLED1(void *pdata);
 static void appTaskLED2(void *pdata);
-static void appTaskCOUNT1(void *pdata);
-static void appTaskCOUNT2(void *pdata);
 
-static void display(uint8_t id, uint32_t value);
-static void progress(uint8_t id, uint32_t value);
 /*
 *********************************************************************************************************
-*                                            GLOBAL VARIABLES
+*                                            GLOBAL TYPES AND VARIABLES 
 *********************************************************************************************************
 */
-static Display* d = Display::theDisplay();
+
+typedef enum {
+	JLEFT = 0,
+	JRIGHT,
+	JUP,
+	JDOWN
+} buttonId_t;
+
+enum {
+	FLASH_MIN_DELAY     = 1,
+	FLASH_INITIAL_DELAY = 500,
+	FLASH_MAX_DELAY     = 1000,
+	FLASH_DELAY_STEP    = 50
+};
+
+static bool buttonPressedAndReleased(buttonId_t button);
+static void incDelay(void);
+static void decDelay(void);
+
+static DigitalOut led1(P1_18);
+static DigitalOut led2(P0_13);
+static DigitalIn buttons[] = {P5_0, P5_4, P5_2, P5_1}; // LEFT, RIGHT, UP, DOWN
+static AnalogIn potentiometer(P0_23);
+static Display *d = Display::theDisplay();
+
 static bool flashing = false;
-static uint32_t total = 0;
-static uint32_t count1 = 0;
-static uint32_t count2 = 0;
-static bool need1 = false;
-static bool need2 = false;
-static uint32_t turn = 0;
+static int32_t flashingDelay = FLASH_INITIAL_DELAY;
 
 /*
 *********************************************************************************************************
@@ -67,14 +80,21 @@ static uint32_t turn = 0;
 
 int main() {
 
-  /* Initialise the display */	
+	/* Initialise the display */	
 	d->fillScreen(WHITE);
 	d->setTextColor(BLACK, WHITE);
-	
+  d->setCursor(2, 2);
+	d->printf("EN0572 Lab 06");
+
   /* Initialise the OS */
   OSInit();                                                   
 
   /* Create the tasks */
+  OSTaskCreate(appTaskButtons,                               
+               (void *)0,
+               (OS_STK *)&appTaskButtonsStk[APP_TASK_BUTTONS_STK_SIZE - 1],
+               APP_TASK_BUTTONS_PRIO);
+  
   OSTaskCreate(appTaskLED1,                               
                (void *)0,
                (OS_STK *)&appTaskLED1Stk[APP_TASK_LED1_STK_SIZE - 1],
@@ -85,17 +105,7 @@ int main() {
                (OS_STK *)&appTaskLED2Stk[APP_TASK_LED2_STK_SIZE - 1],
                APP_TASK_LED2_PRIO);
 
-  OSTaskCreate(appTaskCOUNT1,                               
-               (void *)0,
-               (OS_STK *)&appTaskCOUNT1Stk[APP_TASK_COUNT1_STK_SIZE - 1],
-               APP_TASK_COUNT1_PRIO);
-
-  OSTaskCreate(appTaskCOUNT2,                               
-               (void *)0,
-               (OS_STK *)&appTaskCOUNT2Stk[APP_TASK_COUNT2_STK_SIZE - 1],
-               APP_TASK_COUNT2_PRIO);
-
-							 
+  
   /* Start the OS */
   OSStart();                                                  
   
@@ -109,106 +119,88 @@ int main() {
 *********************************************************************************************************
 */
 
-static void appTaskLED1(void *pdata) {
-  DigitalOut led1(LED1);
-	
+static void appTaskButtons(void *pdata) {
   /* Start the OS ticker -- must be done in the highest priority task */
   SysTick_Config(SystemCoreClock / OS_TICKS_PER_SEC);
   
   /* Task main loop */
   while (true) {
-		if (flashing) {
-      led1 = !led1;
+    if (buttonPressedAndReleased(JLEFT)) {
+			flashing = false;
 		}
-		OSTimeDlyHMSM(0,0,0,500);
+		else if (buttonPressedAndReleased(JRIGHT)) {
+			flashing = true;
+		}
+		else if (flashing && buttonPressedAndReleased(JUP)) {
+			decDelay();
+		}
+		else if (flashing && buttonPressedAndReleased(JDOWN)) {
+			incDelay();
+		}
+    OSTimeDlyHMSM(0,0,0,100);
   }
 }
 
-static void appTaskLED2(void *pdata) {
-  DigitalOut led2(LED2);
-	
+static void appTaskLED1(void *pdata) {
   while (true) {
-    OSTimeDlyHMSM(0,0,0,500);
+		if (flashing) {
+      led1 = !led1;
+		}
+    OSTimeDly(flashingDelay);
+  }
+}
+
+
+static void appTaskLED2(void *pdata) {
+  while (true) {
 		if (flashing) {
       led2 = !led2;
 		}
+    OSTimeDly(flashingDelay);
   } 
 }
 
-static void appTaskCOUNT1(void *pdata) {  
-  while (true) {
-		need1 = true;
-		turn = 2;
-		while (need2 && (turn == 2)) {
-			// do nothing but wait
-			OSTimeDlyHMSM(0,0,0,1);
-		}
-    count1 += 1;
-    display(1, count1);
-    total += 1;
-		need1 = false;
-    if ((count1 + count2) != total) {
-      flashing = true;
-    }
-		OSTimeDlyHMSM(0,0,0,2);
-  } 
-}
-
-static void appTaskCOUNT2(void *pdata) {
-  while (true) {
-		need2 = true;
-		turn = 1;
-		while (need1 && (turn == 1)) {
-			// do nothing but wait
-			// OSTimeDlyHMSM(0,0,0,1);
-		}
-    count2 += 1;
-    display(2, count2);
-    total += 1;
-		need2 = false;
-    if ((count1 + count2) != total) {
-      flashing = true;
-    }
-		OSTimeDlyHMSM(0,0,0,2);
-  } 
-}
-
-static void display(uint8_t id, uint32_t value) {
-    d->setCursor(2, id * d->getStringHeight("X"));
-    d->printf("count%1d: %09d", id, value);
-	  progress(id, value);
-}
-
-static void progress(uint8_t id, uint32_t value) {
-	uint16_t x;
-	uint16_t y;
-	uint16_t const left = 200;
-  uint16_t const right = 300;
-  uint16_t ppos;	
-	uint16_t height;
-	uint16_t top;
-	uint16_t bottom;
-	uint16_t colour;
+/*
+ * @brief buttonPressedAndReleased(button) tests to see if the button has
+ *        been pressed then released.
+ *        
+ * @param button - the name of the button
+ * @result - true if button pressed then released, otherwise false
+ *
+ * If the value of the button's pin is 0 then the button is being pressed,
+ * just remember this in savedState.
+ * If the value of the button's pin is 1 then the button is released, so
+ * if the savedState of the button is 0, then the result is true, otherwise
+ * the result is false.
+ */
+bool buttonPressedAndReleased(buttonId_t b) {
+	bool result = false;
+	uint32_t state;
+	static uint32_t savedState[4] = {1,1,1,1};
 	
-	ppos = left + ((value % 1000) / 10);	
-	height = d->getStringHeight("X");
-	top = id * height;
-	bottom = (id + 1) * height - 2;
-	if (id == 1) {
-		colour = RED;
+	state = buttons[b].read();
+  if ((savedState[b] == 0) && (state == 1)) {
+		result = true;
+	}
+	savedState[b] = state;
+	return result;
+}
+
+void incDelay(void) {
+	if (flashingDelay + FLASH_DELAY_STEP > FLASH_MAX_DELAY) {
+		flashingDelay = FLASH_MAX_DELAY;
 	}
 	else {
-		colour = GREEN;
-	}
-	for (x = left; x < ppos; x++) {
-		for (y = top; y < bottom; y++) {
-			d->drawPixel(x, y, colour);
-		}
-	}
-	for (x = ppos; x < right; x++) {
-		for (y = top; y < bottom; y++) {
-			d->drawPixel(x, y, WHITE);
-		}
+		flashingDelay += FLASH_DELAY_STEP;
 	}
 }
 
+void decDelay(void) {
+	if (flashingDelay - FLASH_DELAY_STEP < FLASH_MIN_DELAY) {
+		flashingDelay = FLASH_MIN_DELAY;
+	}
+	else {
+		flashingDelay -= FLASH_DELAY_STEP;
+	}
+}
+	
