@@ -153,7 +153,7 @@ static void appTaskButtons(void *pdata) {
 static void appTaskPot(void *pdata) {
   while (true) {
     d->setCursor(2, 12);
-		d->printf("Pot value : %1.2f\n", potentiometer.read());
+		d->printf("Pot value : %1.2f\n", 1.0 - potentiometer.read());
     OSTimeDlyHMSM(0,0,0,200);
   }
 }
