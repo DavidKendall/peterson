@@ -66,6 +66,7 @@ enum {
 static bool buttonPressedAndReleased(buttonId_t button);
 static void incDelay(void);
 static void decDelay(void);
+static void progress(float value);
 
 static DigitalOut led1(P1_18);
 static DigitalOut led2(P0_13);
@@ -151,9 +152,14 @@ static void appTaskButtons(void *pdata) {
 }
 
 static void appTaskPot(void *pdata) {
+	float potVal;
+	
+	d->drawRect(109, 12, 102, 10, BLACK);
   while (true) {
+		potVal = 1.0 - potentiometer.read();
     d->setCursor(2, 12);
-		d->printf("Pot value : %1.2f\n", potentiometer.read());
+		d->printf("Pot value : %1.2f\n", potVal);	
+    progress(potVal);		
     OSTimeDlyHMSM(0,0,0,200);
   }
 }
@@ -221,3 +227,29 @@ void decDelay(void) {
 	}
 }
 	
+static void progress(float value) {
+	uint16_t x;
+	uint16_t y;
+	uint16_t const left = 110;
+  uint16_t const right = 210;
+  uint16_t ppos;	
+	uint16_t top;
+	uint16_t bottom;
+	uint16_t colour;
+	
+	ppos = left + int(value * 100);	
+	top = 13;
+	bottom = 21;
+	colour = RED;
+	for (x = left; x < ppos; x++) {
+		for (y = top; y < bottom; y++) {
+			d->drawPixel(x, y, colour);
+		}
+	}
+	for (x = ppos; x < right; x++) {
+		for (y = top; y < bottom; y++) {
+			d->drawPixel(x, y, WHITE);
+		}
+	}
+}
+
