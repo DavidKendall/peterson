@@ -105,7 +105,7 @@ int main() {
                (OS_STK *)&appTaskPotStk[APP_TASK_POT_STK_SIZE - 1],
                APP_TASK_POT_PRIO);
 
-							 OSTaskCreate(appTaskLED1,                               
+	OSTaskCreate(appTaskLED1,                               
                (void *)0,
                (OS_STK *)&appTaskLED1Stk[APP_TASK_LED1_STK_SIZE - 1],
                APP_TASK_LED1_PRIO);
